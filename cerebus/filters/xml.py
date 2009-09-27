@@ -3,11 +3,11 @@ import random
 
 from twisted.spread import flavors
 
-class Task(flavors.Copyable, flavors.RemoteCopy):
+class Filter(flavors.Copyable, flavors.RemoteCopy):
     status = 'created'
     pass
 
-class XmlFilter(Task):
+class XmlFilter(Filter):
     def run(self):
         print "xml_filter"
         result = 0
@@ -16,7 +16,7 @@ class XmlFilter(Task):
             result += math.tanh(angle)/math.cosh(angle)
         return "%s, result: %.2f" % (self, result)
 
-class XslFilter(Task):
+class XslFilter(Filter):
     def run(self):
         print "xsl_filter"
         result = 0

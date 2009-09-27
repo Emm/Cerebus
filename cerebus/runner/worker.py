@@ -1,35 +1,33 @@
-"""
-solver.py
-Solves one portion of a problem, in a separate process on a separate CPU
-"""
 import sys, random, math
 from twisted.spread import pb
 from twisted.internet import reactor
 
-import filters.xml
+# Import filters to get the flavors.setUnjellyableForClass cruft
+import cerebus.filters
 
 class Worker(pb.Root):
-
+    """
+    Worker process, launched by :class:`Worker`
+    """
     def __init__(self, id):
         self.id = id
 
-    def __str__(self): # String representation
+    def __str__(self):
         return "Worker %s" % self.id
 
-    def remote_initialize(self, initArg):
-        return "%s initialized" % self
-
-    def run(self, task):
-        result = 0
+    def remote_run(self, task):
+        """
+        Runs a given task
+        """
         return task.run()
-
-    # Alias methods, for demonstration version:
-    remote_run = run
 
     def remote_status(self):
         return "%s operational" % self
 
     def remote_terminate(self):
+        """
+        Terminates the worker process
+        """
         reactor.callLater(0.5, reactor.stop)
         return "%s terminating..." % self
 

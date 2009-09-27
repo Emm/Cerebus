@@ -1,4 +1,3 @@
-#!/usr/bin/env python
 START_PORT = 8800
 
 import os
@@ -8,9 +7,18 @@ import sys
 from twisted.spread import pb, flavors
 from twisted.internet import reactor, defer
 
-from filters.xml import XmlFilter, XslFilter
-
 class Worker(object):
+    """
+    Wrapper around a RemoteObject instance. 
+    
+    It has the following fields:
+    - *address*: the host on which it is running
+    - *port*: the port on which it is running
+    - *pid*: its pid
+    - *status*: its status - can be one of *idle* or *busy*
+    - *remote_object*: the remote_object it wraps
+    """
+
     def __init__(self, address, port):
         self.address = address
         self.port = port
@@ -19,6 +27,10 @@ class Worker(object):
         self.remote_object = None
 
     def create(self, worker_program):
+        """
+        Starts a new worker process on *localhost*. Starts a new Python instance
+        and runs *worker_program*.
+        """
         self.pid = Popen(["python", worker_program, str(self.port)])
         return self.pid
        
@@ -26,10 +38,18 @@ class Worker(object):
         """
         Convenience method for invoking the remote object
         """
-        return self.remote_object.callRemote(_name, args, kw)
+        return self.remote_object.callRemote(_name, *args, **kw)
 
 class WorkerGroup(object):
+    """
+    A group of :class:`Worker` objects. It is responsible for creating
+    individual workers and allocating them for a task.
+    """
+
     def __init__(self, worker_program, start_port):
+        """
+        Creates a new worker group and instantiates one worker per CPU.
+        """
         self.workers = []
         self.start_port = start_port
         self.worker_program = worker_program
@@ -56,6 +76,9 @@ class WorkerGroup(object):
         return 1 # Default
 
     def _create_workers(self):
+        """
+        Creates the workers
+        """
         cores = self.detect_cpus()
         # Start a subprocess on a core for each worker:
         for i in xrange(self.start_port, self.start_port + cores):
@@ -71,9 +94,16 @@ class WorkerGroup(object):
 
     @property
     def free_workers(self):
+        """
+        Returns a list of free (idle) workers
+        """
         return [w for w in self.workers if w.status == 'idle']
 
     def allocate_worker(self):
+        """
+        Allocates a worker from the pool. Returns the selected worker, or `None`
+        if no worker was available.
+        """
         for worker in self.free_workers:
             if worker.status == 'idle':
                 worker.status = 'busy'
@@ -81,24 +111,15 @@ class WorkerGroup(object):
         return None
 
 class Controller(object):
-
+    """
+    Creates a worker group
+    """
     def __init__(self, tasks):
         self.tasks = tasks
         self.connected = False
         self.workers = WorkerGroup(start_port=START_PORT,
                 worker_program='worker.py')
         reactor.callLater(1, self.connect) # Give the workers time to start
-
-    # Utilities:
-    def broadcastCommand(self, remoteMethodName, arguments, nextStep, failureMessage):
-        "Send a command with arguments to all workers"
-        print "broadcasting ...",
-        deferreds = [worker.call_remote(remoteMethodName, arguments) for worker in self.workers.values()]
-        print "broadcasted"
-        reactor.callLater(3, self.check_status)
-        # Use a barrier to wait for all to finish before nextStep:
-        defer.DeferredList(deferreds, consumeErrors=True).addCallbacks(nextStep,
-            self.failed, errbackArgs=(failureMessage))
 
     def check_status(self):
         "Show that workers can still receive messages"
@@ -157,7 +178,7 @@ class Controller(object):
                 raise StandardError("Could not allocate a new worker")
             task = self.get_next_task()
             failure_message = "Error while processing %s on %s" % (task, worker)
-            worker.remote_object.callRemote('run',
+            worker.call_remote('run',
                     task).addCallbacks(self.run_next_tasks,
                             callbackArgs=(worker, task),
                             errback=self.failed, errbackArgs=(failure_message))
@@ -173,9 +194,6 @@ class Controller(object):
             return reactor.callLater(0.5, self.start)
         self.run_tasks()
 
-    def collectResults(self, results):
-        print "step 3 results:", results
-
     @property
     def tasks_to_run(self):
         return [t for t in self.tasks if t.status == "created"] 
@@ -186,24 +204,8 @@ class Controller(object):
 
     def terminate(self):
         for worker in self.workers:
-            worker.remote_object.callRemote("terminate").addErrback(self.failed,
+            worker.call_remote("terminate").addErrback(self.failed,
                     "Termination Failed")
-            reactor.stop
-
-class FlexInterface(pb.Root):
-    """
-    Interface to Flex control panel (Make sure you have at least PyAMF 0.3.1)
-    """
-    def __init__(self, controller):
-        self.controller = controller
-
-    def start(self, _):
-        self.controller.start()
-        return "Starting parallel jobs"
-
-    def terminate(self, _):
-        for worker in controller.workers.values():
-            worker.callRemote("terminate").addErrback(self.controller.failed, "Termination Failed")
         reactor.callLater(1, reactor.stop)
         return "Terminating remote workers"
 
